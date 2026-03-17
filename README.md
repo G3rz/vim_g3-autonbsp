@@ -19,7 +19,7 @@ Do sveho LazyVim configu pridej plugin spec:
 ```lua
 return {
   {
-    "USERNAME/vim_g3-autonbsp",
+    "G3rz/vim_g3-autonbsp",
     config = function()
       require("g3_autonbsp").setup()
     end,
