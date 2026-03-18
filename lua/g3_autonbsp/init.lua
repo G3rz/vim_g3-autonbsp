@@ -36,6 +36,13 @@ local number_orders = {
   "miliarda", "miliardy", "miliard", "bilion", "bilionů"
 }
 
+local protected_block_tags = {
+  code = true,
+  pre = true,
+  script = true,
+  style = true,
+}
+
 local function build_regex_or(list)
   local escaped = {}
   for _, item in ipairs(list) do
@@ -93,13 +100,60 @@ function M.apply_rules(text, replacement, regexes)
   return result
 end
 
+local function find_tag_end(text, start_pos)
+  return text:find(">", start_pos + 1, true)
+end
+
+local function find_html_span(text, lower_text, start_pos)
+  local tag_end = find_tag_end(text, start_pos)
+  if not tag_end then
+    return start_pos, #text
+  end
+
+  local is_closing = lower_text:match("^<%s*/", start_pos) ~= nil
+  local tag_name = lower_text:match("^<%s*/?%s*([%a][%w:-]*)", start_pos)
+  if not tag_name or is_closing or not protected_block_tags[tag_name] then
+    return start_pos, tag_end
+  end
+
+  local close_pattern = string.format("</%s%%s*>", tag_name)
+  local _, close_end = lower_text:find(close_pattern, tag_end + 1)
+  if close_end then
+    return start_pos, close_end
+  end
+
+  return start_pos, #text
+end
+
+local function process_lines(lines, replacement)
+  local text = table.concat(lines, "\n")
+  local new_text = M.process_text(text, replacement)
+  return vim.split(new_text, "\n", { plain = true })
+end
+
+local function replace_line_range(bufnr, start_line, end_line, replacement)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, start_line, end_line, false)
+  local new_lines = process_lines(lines, replacement)
+  vim.api.nvim_buf_set_lines(bufnr, start_line, end_line, false, new_lines)
+end
+
 function M.process_text(text, replacement)
   local regexes = build_regexes()
+  local lower_text = text:lower()
   local result = ""
   local pos = 1
 
   while pos <= #text do
-    local start_tag = text:find("[<%%[]", pos)
+    local next_html = text:find("<", pos, true)
+    local next_bracket = text:find("[", pos, true)
+    local start_tag
+
+    if next_html and next_bracket then
+      start_tag = math.min(next_html, next_bracket)
+    else
+      start_tag = next_html or next_bracket
+    end
+
     if not start_tag then
       result = result .. M.apply_rules(text:sub(pos), replacement, regexes)
       break
@@ -107,30 +161,36 @@ function M.process_text(text, replacement)
 
     result = result .. M.apply_rules(text:sub(pos, start_tag - 1), replacement, regexes)
     local opener = text:sub(start_tag, start_tag)
-    local closer = opener == "<" and ">" or "]"
-    local end_tag = text:find(closer, start_tag + 1, true)
+    local span_start, span_end
 
-    if end_tag then
-      result = result .. text:sub(start_tag, end_tag)
-      pos = end_tag + 1
+    if opener == "<" then
+      span_start, span_end = find_html_span(text, lower_text, start_tag)
     else
-      result = result .. opener
-      pos = start_tag + 1
+      local end_tag = text:find("]", start_tag + 1, true)
+      if end_tag then
+        span_start, span_end = start_tag, end_tag
+      else
+        span_start, span_end = start_tag, #text
+      end
     end
+
+    result = result .. text:sub(span_start, span_end)
+    pos = span_end + 1
   end
 
   return result
 end
 
-function M.run(replacement)
+function M.run(replacement, range)
   local actual_replacement = replacement or " "
   local bufnr = vim.api.nvim_get_current_buf()
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local text = table.concat(lines, "\n")
-  local new_text = M.process_text(text, actual_replacement)
-  local new_lines = vim.split(new_text, "\n", { plain = true })
 
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, new_lines)
+  if range and range.start_line and range.end_line then
+    replace_line_range(bufnr, range.start_line, range.end_line, actual_replacement)
+  else
+    replace_line_range(bufnr, 0, -1, actual_replacement)
+  end
+
   vim.notify("Autonbsp: Formátování dokončeno.", vim.log.levels.INFO)
 end
 
@@ -143,9 +203,13 @@ function M.setup(opts)
 
   if command ~= false then
     vim.api.nvim_create_user_command(command or "G3Autonbsp", function(args)
-      local replacement = args.args ~= "" and args.args or " "
-      M.run(replacement)
-    end, { nargs = "?", desc = "Vloží nedělitelné mezery" })
+      local replacement = args.args ~= "" and args.args or hard_space
+      local range = args.range > 0 and {
+        start_line = args.line1 - 1,
+        end_line = args.line2,
+      } or nil
+      M.run(replacement, range)
+    end, { nargs = "?", range = true, desc = "Vloží nedělitelné mezery" })
   end
 
   if keymaps ~= false then
@@ -156,9 +220,19 @@ function M.setup(opts)
       M.run(hard_space)
     end, { desc = "Autonbsp (hard space)" })
 
+    vim.keymap.set("x", hard_key, string.format(":<C-u>'<,'>%s %s<CR>", command or "G3Autonbsp", hard_space), {
+      silent = true,
+      desc = "Autonbsp (hard space)",
+    })
+
     vim.keymap.set({ "n", "i" }, html_key, function()
       M.run(html_space)
     end, { desc = "Autonbsp (&nbsp;)" })
+
+    vim.keymap.set("x", html_key, string.format(":<C-u>'<,'>%s %s<CR>", command or "G3Autonbsp", html_space), {
+      silent = true,
+      desc = "Autonbsp (&nbsp;)",
+    })
   end
 end
 
