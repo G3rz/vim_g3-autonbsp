@@ -1,6 +1,6 @@
 # vim_g3-autonbsp
 
-Neovim plugin pro automaticke vkladani nedelitelnych mezer podle ceskych typografickych pravidel.
+Neovim plugin pro automatické vkládání nedělitelných mezer podle českých typografických pravidel.
 
 ## Struktura
 
@@ -14,7 +14,7 @@ vim_g3-autonbsp/
 
 ## LazyVim
 
-Do sveho LazyVim configu pridej plugin spec:
+Do svého LazyVim configu přidej plugin spec:
 
 ```lua
 return {
@@ -27,12 +27,15 @@ return {
 }
 ```
 
-## Pouziti
+## Použití
 
-- `<F7>` vlozi hard space
-- `<F6>` vlozi `&nbsp;`
-- `:G3Autonbsp`
+- `<F7>` vloží hard space
+- `<F6>` vloží `&nbsp;`
+- `:G3Autonbsp` vloží hard space
 - `:G3Autonbsp &nbsp;`
+- ve visual režimu keymapy upraví celé řádky označeného textu
+- command podporuje range, např. `:'<,'>G3Autonbsp &nbsp;`
+- chrání HTML tagy, shortcody a celé bloky `script`, `style`, `pre` a `code`
 
 ## Konfigurace
 
